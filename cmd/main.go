@@ -1,59 +1,63 @@
 package main
 
 import (
-	handler "booking-api/internal/api"
-	// "booking-api/internal/repo"
+	api "booking-api/internal/api"
 	postgresrepo "booking-api/internal/repo/postgres"
-
 	"booking-api/internal/usecase/service"
 	"log"
-	"net/http"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
-	// 1. Подключение к БД
+	// 1. Connect to database
 	dsn := "host=localhost user=postgres password=1234 dbname=bookingdb port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	// 2. Репозитории
+	// // 2. Repositories
 	// bookingRepo := repo.NewBookingRepo(db)
 	// tableRepo := repo.NewTableRepo(db)
 	// userRepo := repo.NewUserRepo(db)
 	// cafeRepo := repo.NewCafeRepo(db)
+
 	bookingRepo := postgresrepo.NewBookingRepo(db)
 	tableRepo := postgresrepo.NewTableRepo(db)
 	userRepo := postgresrepo.NewUserRepo(db)
 	cafeRepo := postgresrepo.NewCafeRepo(db)
 
-	// 3. Сервисы (usecase)
+	// 3. Services
 	bookingService := service.NewBookingService(bookingRepo, tableRepo, userRepo)
 	tableService := service.NewTableService(tableRepo)
 	userService := service.NewUserService(userRepo)
 	cafeService := service.NewCafeService(cafeRepo)
 
-	// 4. HTTP handler
-	h := handler.NewHandler(bookingService, tableService, cafeService, userService)
+	// 4. Handler
+	h := api.NewHandler(bookingService, tableService, cafeService, userService)
 
-	// 5. Router (mux)
-	r := mux.NewRouter()
+	// 5. Gin Router
+	r := gin.Default()
 
 	// Booking routes
-	r.HandleFunc("/api/bookings", h.CreateBooking).Methods("POST")
-	r.HandleFunc("/api/bookings/{id}", h.CancelBooking).Methods("DELETE")
-	r.HandleFunc("/api/users/{id}/bookings", h.GetUserBookings).Methods("GET")
+	r.POST("/api/bookings", h.CreateBooking)
+	r.PUT("/api/bookings/:id", h.UpdateBooking) // New: update booking
+	r.DELETE("/api/bookings/:id", h.CancelBooking)
+	r.GET("/api/users/:id/bookings", h.GetUserBookings)
+	r.POST("/api/bookings/check-availability", h.CheckTableAvailability) // New: check table availability
 
 	// Cafe and tables
-	r.HandleFunc("/api/cafes", h.GetCafes).Methods("GET")
-	r.HandleFunc("/api/cafes/{id}/available-tables", h.GetAvailableTables).Methods("GET")
+	r.GET("/api/cafes", h.GetCafes)
+	r.GET("/api/cafes/:cafe_id/available-tables", h.GetAvailableTables) // Use cafe_id for consistency
+	r.GET("/api/cafes/:cafe_id/bookings", h.GetBookingsByCafe) // New: get bookings by cafe
+	r.POST("/api/cafes/:cafe_id/bookings/date-range", h.GetBookingsByDateRange) // New: get bookings by date range
 
-	// 6. Запуск сервера
+	// 6. Run server
 	log.Println("Server is running on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
 }
